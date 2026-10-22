@@ -108,11 +108,16 @@
 
     <div id="bingoToast" class="bingo-toast" aria-live="assertive" aria-hidden="true" hidden>
       <div class="toast-card">
-        <p class="toast-tag">BINGO!</p>
-        <p class="toast-copy">You’ve got a line.</p>
+        <p id="bingoToastTag" class="toast-tag">BINGO!</p>
+        <p id="bingoToastCopy" class="toast-copy">You’ve got a line.</p>
         <button id="dismissBingoButton" class="toast-button" type="button">Keep playing</button>
       </div>
     </div>
+
+    <button id="partyAnnouncement" class="party-announcement" type="button" aria-live="polite" hidden>
+      <span id="partyAnnouncementTag" class="party-announcement-tag">BINGO!</span>
+      <span id="partyAnnouncementText"></span>
+    </button>
 
     <div id="rulesModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="rulesTitle" hidden>
       <div class="modal-card">

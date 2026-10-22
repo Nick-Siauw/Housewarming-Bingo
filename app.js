@@ -102,6 +102,11 @@ const leaderboardList = document.getElementById('leaderboardList');
 const whosHereList = document.getElementById('whosHereList');
 const whosHereCount = document.getElementById('whosHereCount');
 const activityFeed = document.getElementById('activityFeed');
+const partyAnnouncement = document.getElementById('partyAnnouncement');
+const partyAnnouncementText = document.getElementById('partyAnnouncementText');
+const partyAnnouncementTag = document.getElementById('partyAnnouncementTag');
+const bingoToastTag = document.getElementById('bingoToastTag');
+const bingoToastCopy = document.getElementById('bingoToastCopy');
 
 function shuffle(items) {
   const next = [...items];
@@ -152,12 +157,16 @@ const party = {
   feed: [],
   clockOffset: 0,
   connected: false,
-  hasSynced: false
+  hasSynced: false,
+  seenEventIds: new Set(),
+  feedPrimed: false
 };
 
 let syncTimer = null;
 let queuedSyncTimer = null;
 let syncInFlight = false;
+let resyncAfterFlight = false;
+let announcementTimer = null;
 
 function buildHeartbeat(extra = {}) {
   return {
@@ -170,15 +179,57 @@ function buildHeartbeat(extra = {}) {
   };
 }
 
+function getEventKey(entry) {
+  return entry.id || `${entry.at}-${entry.name}-${entry.text}`;
+}
+
+// Announce other players' bingos and full boards that arrived since the last sync. The first
+// sync only records what's already in the feed so old wins aren't replayed on load.
+function announceNewBingos(feed) {
+  const isFirstLoad = !party.feedPrimed;
+  party.feedPrimed = true;
+  const newWins = feed.filter((entry) => (
+    (entry.type === 'bingo' || entry.type === 'fullBoard')
+    && entry.playerId !== state.playerId
+    && !party.seenEventIds.has(getEventKey(entry))
+  ));
+
+  feed.forEach((entry) => party.seenEventIds.add(getEventKey(entry)));
+
+  if (!isFirstLoad && newWins.length) {
+    showPartyAnnouncement(newWins.find((entry) => entry.type === 'fullBoard') || newWins[0]);
+  }
+}
+
+function showPartyAnnouncement(entry) {
+  const isFullBoard = entry.type === 'fullBoard';
+  partyAnnouncementTag.textContent = isFullBoard ? 'FULL BOARD! 🦋' : 'BINGO!';
+  partyAnnouncementText.textContent = `${entry.emoji} ${entry.name} ${entry.text}`;
+  partyAnnouncement.classList.toggle('is-full-board', isFullBoard);
+  partyAnnouncement.hidden = false;
+  if (bingoToast.hidden) {
+    triggerConfetti(isFullBoard ? 160 : 60);
+  }
+  window.clearTimeout(announcementTimer);
+  announcementTimer = window.setTimeout(hidePartyAnnouncement, isFullBoard ? 10000 : 6000);
+}
+
+function hidePartyAnnouncement() {
+  partyAnnouncement.hidden = true;
+}
+
 function applySnapshot(snapshot) {
   party.players = Array.isArray(snapshot.players) ? snapshot.players : [];
   party.feed = Array.isArray(snapshot.feed) ? snapshot.feed : [];
   party.clockOffset = Number(snapshot.now) ? snapshot.now - Date.now() : 0;
   party.connected = true;
+  announceNewBingos(party.feed);
 }
 
 async function syncPresence() {
   if (syncInFlight) {
+    // A change landed mid-request; send it as soon as this one finishes.
+    resyncAfterFlight = true;
     return;
   }
   syncInFlight = true;
@@ -205,6 +256,11 @@ async function syncPresence() {
   }
 
   renderPartyPanels();
+
+  if (resyncAfterFlight) {
+    resyncAfterFlight = false;
+    syncPresence();
+  }
 }
 
 function queueSync() {
@@ -445,12 +501,12 @@ function serializeLines(lines) {
   return lines.map((line) => line.join('-')).join('|');
 }
 
-function triggerConfetti() {
+function triggerConfetti(pieceCount = 60) {
   confettiLayer.innerHTML = '';
 
   const colors = ['#ff4fa0', '#d9352b', '#1f6bff', '#ffd863', '#4bb77d'];
 
-  for (let index = 0; index < 60; index += 1) {
+  for (let index = 0; index < pieceCount; index += 1) {
     const piece = document.createElement('span');
     piece.style.left = `${Math.random() * 100}%`;
     piece.style.background = colors[index % colors.length];
@@ -473,10 +529,17 @@ function showBingoToast() {
     return;
   }
 
+  const isFullBoard = getCompletedCount() === 24;
+  bingoToastTag.textContent = isFullBoard ? 'SOCIAL BUTTERFLY 🦋' : 'BINGO!';
+  bingoToastCopy.textContent = isFullBoard
+    ? 'You filled the whole board. Is there anyone here you haven’t met?'
+    : 'You’ve got a line.';
+  bingoToast.classList.toggle('is-full-board', isFullBoard);
+
   state.lastCelebratedKey = toastKey;
   bingoToast.hidden = false;
   bingoToast.setAttribute('aria-hidden', 'false');
-  triggerConfetti();
+  triggerConfetti(isFullBoard ? 160 : 60);
 }
 
 function hideBingoToast() {
@@ -587,6 +650,8 @@ function renderActivityFeed() {
   party.feed.forEach((entry) => {
     const item = document.createElement('li');
     item.className = 'activity-item';
+    item.classList.toggle('is-bingo', entry.type === 'bingo');
+    item.classList.toggle('is-full-board', entry.type === 'fullBoard');
 
     const text = document.createElement('span');
     text.textContent = `${entry.emoji} ${entry.name} ${entry.text}`;
@@ -755,6 +820,7 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+partyAnnouncement.addEventListener('click', hidePartyAnnouncement);
 window.addEventListener('pagehide', sendLeaveBeacon);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {

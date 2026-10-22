@@ -7,6 +7,14 @@ const ONLINE_WINDOW_MS = 25 * 1000;
 const STALE_PLAYER_MS = 12 * 60 * 60 * 1000;
 const FEED_LENGTH = 40;
 const KEY_TTL_SECONDS = 2 * 24 * 60 * 60;
+const FULL_BOARD_SCORE = 24;
+const FULL_BOARD_LINES = [
+  'is the ultimate social butterfly 🦋',
+  'has officially met everyone at this party 🦋',
+  'filled the whole board. Somebody give them a crown 👑',
+  'knows more about you than you do 🕵️',
+  'is the main character of this housewarming ✨'
+];
 
 const REDIS_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -140,17 +148,22 @@ module.exports = async function handler(req, res) {
     players[id] = player;
 
     const events = [];
-    const who = { emoji: player.emoji, name: player.name };
+    const addEvent = (type, text) => {
+      events.push({ id: `${now}-${id}-${type}`, type, playerId: id, emoji: player.emoji, name: player.name, text });
+    };
     if (!previous) {
-      events.push({ ...who, text: 'joined the party' });
+      addEvent('join', 'joined the party');
     } else if (previous.left && !player.left && now - previous.lastSeen > 10 * 60 * 1000) {
-      events.push({ ...who, text: 'is back' });
+      addEvent('return', 'is back');
     }
-    if (previous && player.score > previous.score) {
-      events.push({ ...who, text: `is up to ${player.score} square${player.score === 1 ? '' : 's'}` });
+    const isFullBoard = player.score === FULL_BOARD_SCORE && (!previous || previous.score < FULL_BOARD_SCORE);
+    if (isFullBoard) {
+      addEvent('fullBoard', FULL_BOARD_LINES[Math.floor(Math.random() * FULL_BOARD_LINES.length)]);
+    } else if (previous && player.score > previous.score) {
+      addEvent('score', `is up to ${player.score} square${player.score === 1 ? '' : 's'}`);
     }
-    if (player.bingos > (previous ? previous.bingos : 0)) {
-      events.push({ ...who, text: 'got BINGO! 🎉' });
+    if (!isFullBoard && player.bingos > (previous ? previous.bingos : 0)) {
+      addEvent('bingo', player.bingos > 1 ? `got another BINGO! (${player.bingos} lines) 🎉` : 'got BINGO! 🎉');
     }
 
     const writes = [

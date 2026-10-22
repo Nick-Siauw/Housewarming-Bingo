@@ -509,6 +509,83 @@ h1 {
   font-weight: 700;
 }
 
+.activity-item.is-bingo {
+  border-left-color: var(--red);
+  background: var(--yellow);
+  font-weight: 800;
+}
+
+.activity-item.is-full-board {
+  border-left-color: var(--ink);
+  background: var(--pink);
+  color: #fff;
+  font-weight: 800;
+}
+
+.party-announcement.is-full-board {
+  background: var(--pink);
+  color: #fff;
+}
+
+.party-announcement.is-full-board .party-announcement-tag {
+  color: var(--yellow);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+.bingo-toast.is-full-board .toast-card {
+  background: var(--pink);
+  color: #fff;
+}
+
+.bingo-toast.is-full-board .toast-tag {
+  color: var(--yellow);
+  font-size: clamp(2rem, 10vw, 3.2rem);
+  text-shadow: 3px 3px 0 var(--ink);
+}
+
+.party-announcement {
+  position: fixed;
+  top: 0.8rem;
+  left: 50%;
+  z-index: 28;
+  display: grid;
+  gap: 0.15rem;
+  width: min(calc(100vw - 2rem), 360px);
+  padding: 0.7rem 1rem;
+  border: 3px solid var(--ink);
+  background: var(--yellow);
+  box-shadow: 5px 5px 0 rgba(17, 17, 17, 0.2);
+  color: var(--ink);
+  font-weight: 800;
+  text-align: center;
+  transform: translateX(-50%);
+  cursor: pointer;
+  animation: announcement-drop 0.35s ease-out;
+}
+
+.party-announcement[hidden] {
+  display: none;
+}
+
+.party-announcement-tag {
+  font-family: Impact, "Arial Black", sans-serif;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--red);
+  letter-spacing: 0.06em;
+}
+
+@keyframes announcement-drop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -120%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
 .activity-notice {
   font-style: italic;
   opacity: 0.75;
