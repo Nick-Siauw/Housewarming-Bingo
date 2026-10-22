@@ -45,6 +45,7 @@
           </div>
 
           <button id="joinButton" class="primary-button join-button" type="button">LET'S PLAY</button>
+          <button id="cancelEditButton" class="secondary-button join-button" type="button" hidden>Cancel</button>
           <p class="player-count"><span id="livePlayerCount">0</span> people playing right now</p>
         </div>
       </section>
@@ -53,10 +54,11 @@
         <header class="masthead" aria-label="Housewarming Bingo header">
           <h1>Housewarming Bingo</h1>
           <div class="player-summary">
-            <span id="currentPlayerChip" class="player-chip">
+            <button id="currentPlayerChip" class="player-chip" type="button" aria-label="Edit your name or emoji">
               <span id="currentPlayerAvatar" class="avatar-bubble">🐸</span>
               <span id="currentPlayerName">Guest</span>
-            </span>
+              <span class="player-chip-edit" aria-hidden="true">✏️</span>
+            </button>
           </div>
           <p class="subtitle">Kathryn × Cynthia × Natasha</p>
           <p id="playerNameBadge" class="player-badge" hidden>Player: <span id="playerNameText">Guest</span></p>

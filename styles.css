@@ -193,6 +193,16 @@ button:focus-visible {
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.player-chip-edit {
+  font-size: 0.75rem;
+}
+
+.join-button[hidden] {
+  display: none;
 }
 
 .avatar-bubble {

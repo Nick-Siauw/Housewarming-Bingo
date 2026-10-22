@@ -90,6 +90,7 @@ const joinScreen = document.getElementById('joinScreen');
 const gameScreen = document.getElementById('gameScreen');
 const guestNameInput = document.getElementById('guestNameInput');
 const joinButton = document.getElementById('joinButton');
+const cancelEditButton = document.getElementById('cancelEditButton');
 const emojiGrid = document.getElementById('emojiGrid');
 const selectedEmojiPreview = document.getElementById('selectedEmojiPreview');
 const livePlayerCount = document.getElementById('livePlayerCount');
@@ -167,6 +168,7 @@ let queuedSyncTimer = null;
 let syncInFlight = false;
 let resyncAfterFlight = false;
 let announcementTimer = null;
+let profileBeforeEdit = null;
 
 function buildHeartbeat(extra = {}) {
   return {
@@ -402,12 +404,44 @@ function loadPlayerProfile() {
   }
 }
 
+// Reuses the join screen to fix a typo'd name or emoji without touching the card.
+function openProfileEditor() {
+  profileBeforeEdit = { name: state.playerName, emoji: state.selectedEmoji };
+  guestNameInput.value = state.playerName;
+  joinButton.textContent = 'Save Changes';
+  cancelEditButton.hidden = false;
+  renderEmojiPicker();
+  showJoinScreen();
+}
+
+function closeProfileEditor() {
+  profileBeforeEdit = null;
+  joinButton.textContent = 'LET\'S PLAY';
+  cancelEditButton.hidden = true;
+  showGameScreen();
+}
+
+function cancelProfileEdit() {
+  state.playerName = profileBeforeEdit.name;
+  state.selectedEmoji = profileBeforeEdit.emoji;
+  renderEmojiPicker();
+  closeProfileEditor();
+}
+
 function joinGame() {
   const trimmedName = guestNameInput.value.trim();
 
   if (!trimmedName) {
     window.alert('Please add your name before joining the party.');
     guestNameInput.focus();
+    return;
+  }
+
+  if (profileBeforeEdit) {
+    state.playerName = trimmedName;
+    savePlayerProfile();
+    closeProfileEditor();
+    renderBoard();
     return;
   }
 
@@ -773,6 +807,19 @@ function resetCard() {
 }
 
 function clearProgress() {
+  const completedCount = getCompletedCount();
+  if (!completedCount) {
+    return;
+  }
+
+  const shouldClear = window.confirm(
+    `Clear all ${completedCount} completed square${completedCount === 1 ? '' : 's'}? `
+    + 'The names you entered will be erased and your leaderboard score will reset to 0. This can’t be undone.'
+  );
+  if (!shouldClear) {
+    return;
+  }
+
   state.completed = Array(25).fill(false);
   state.squareNames = Array(25).fill('');
   state.completed[FREE_INDEX] = true;
@@ -786,6 +833,8 @@ newCardButton.addEventListener('click', resetCard);
 clearProgressButton.addEventListener('click', clearProgress);
 dismissBingoButton.addEventListener('click', hideBingoToast);
 joinButton.addEventListener('click', joinGame);
+cancelEditButton.addEventListener('click', cancelProfileEdit);
+currentPlayerChip.addEventListener('click', openProfileEditor);
 guestNameInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     joinGame();

@@ -9,11 +9,10 @@ const FEED_LENGTH = 40;
 const KEY_TTL_SECONDS = 2 * 24 * 60 * 60;
 const FULL_BOARD_SCORE = 24;
 const FULL_BOARD_LINES = [
-  'is the ultimate social butterfly 🦋',
-  'has officially met everyone at this party 🦋',
+  'filled the entire board #GGFrickinEazyyyyy #GOAT 😼',
   'filled the whole board. Somebody give them a crown 👑',
   'knows more about you than you do 🕵️',
-  'is the main character of this housewarming ✨'
+  'is wayyyy too popular 🙄 how tf do you even fill out the whole board'
 ];
 
 const REDIS_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
@@ -156,14 +155,17 @@ module.exports = async function handler(req, res) {
     } else if (previous.left && !player.left && now - previous.lastSeen > 10 * 60 * 1000) {
       addEvent('return', 'is back');
     }
-    const isFullBoard = player.score === FULL_BOARD_SCORE && (!previous || previous.score < FULL_BOARD_SCORE);
+    if (previous && (previous.name !== player.name || previous.emoji !== player.emoji)) {
+      addEvent('rename', `is the new look for ${previous.emoji} ${previous.name}`);
+    }
+    const isFullBoard =player.score === FULL_BOARD_SCORE && (!previous || previous.score < FULL_BOARD_SCORE);
     if (isFullBoard) {
       addEvent('fullBoard', FULL_BOARD_LINES[Math.floor(Math.random() * FULL_BOARD_LINES.length)]);
     } else if (previous && player.score > previous.score) {
       addEvent('score', `is up to ${player.score} square${player.score === 1 ? '' : 's'}`);
     }
     if (!isFullBoard && player.bingos > (previous ? previous.bingos : 0)) {
-      addEvent('bingo', player.bingos > 1 ? `got another BINGO! (${player.bingos} lines) 🎉` : 'got BINGO! 🎉');
+      addEvent('bingo', player.bingos > 1 ? `got another BINGO bitchesss! 🤙😎 (${player.bingos} lines) 🎉` : 'got BINGO! 🤪');
     }
 
     const writes = [
