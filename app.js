@@ -1,6 +1,7 @@
 const STORAGE_KEY = 'housewarming-bingo-state-v1';
 const PLAYER_PROFILE_KEY = 'housewarming-bingo-player-profile-v1';
-const PARTY_PLAYERS_KEY = 'housewarming-bingo-party-players-v1';
+const PRESENCE_ENDPOINT = '/api/presence';
+const SYNC_INTERVAL_MS = 8000;
 const EMOJI_OPTIONS = ['🐸','🐱','🐙','🦋','🦈','🍒','🍓','🥑','🍸','🪩','👽','🤠','🤡','🐧','🦖','🌷','🐝','🧃','🦀','🎀','🐶','🦄','🌈','🍉','🪐','🌙','🎉','🍔','🧁','🔥'];
 const FREE_INDEX = 12;
 const WINNING_LINES = [
@@ -98,6 +99,8 @@ const currentPlayerName = document.getElementById('currentPlayerName');
 const playerNameText = document.getElementById('playerNameText');
 const playerNameBadge = document.getElementById('playerNameBadge');
 const leaderboardList = document.getElementById('leaderboardList');
+const whosHereList = document.getElementById('whosHereList');
+const whosHereCount = document.getElementById('whosHereCount');
 const activityFeed = document.getElementById('activityFeed');
 
 function shuffle(items) {
@@ -144,22 +147,119 @@ function buildPlayerId() {
   return `player-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function getPartyPlayers() {
-  try {
-    const raw = localStorage.getItem(PARTY_PLAYERS_KEY);
-    if (!raw) {
-      return [];
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    console.warn('Could not read party players:', error);
-    return [];
-  }
+const party = {
+  players: [],
+  feed: [],
+  clockOffset: 0,
+  connected: false,
+  hasSynced: false
+};
+
+let syncTimer = null;
+let queuedSyncTimer = null;
+let syncInFlight = false;
+
+function buildHeartbeat(extra = {}) {
+  return {
+    id: state.playerId,
+    name: state.playerName,
+    emoji: state.selectedEmoji,
+    score: getCompletedCount(),
+    bingos: getWinningLines().length,
+    ...extra
+  };
 }
 
-function savePartyPlayers(players) {
-  localStorage.setItem(PARTY_PLAYERS_KEY, JSON.stringify(players));
+function applySnapshot(snapshot) {
+  party.players = Array.isArray(snapshot.players) ? snapshot.players : [];
+  party.feed = Array.isArray(snapshot.feed) ? snapshot.feed : [];
+  party.clockOffset = Number(snapshot.now) ? snapshot.now - Date.now() : 0;
+  party.connected = true;
+}
+
+async function syncPresence() {
+  if (syncInFlight) {
+    return;
+  }
+  syncInFlight = true;
+
+  try {
+    const response = state.isJoined
+      ? await fetch(PRESENCE_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildHeartbeat())
+        })
+      : await fetch(PRESENCE_ENDPOINT);
+
+    if (!response.ok) {
+      throw new Error(`Presence sync failed: ${response.status}`);
+    }
+    applySnapshot(await response.json());
+  } catch (error) {
+    console.warn('Could not sync with the party:', error);
+    party.connected = false;
+  } finally {
+    party.hasSynced = true;
+    syncInFlight = false;
+  }
+
+  renderPartyPanels();
+}
+
+function queueSync() {
+  window.clearTimeout(queuedSyncTimer);
+  queuedSyncTimer = window.setTimeout(syncPresence, 300);
+}
+
+function startSyncLoop() {
+  window.clearInterval(syncTimer);
+  syncPresence();
+  syncTimer = window.setInterval(syncPresence, SYNC_INTERVAL_MS);
+}
+
+function stopSyncLoop() {
+  window.clearInterval(syncTimer);
+  syncTimer = null;
+}
+
+function sendLeaveBeacon() {
+  if (!state.isJoined || !navigator.sendBeacon) {
+    return;
+  }
+  const payload = new Blob([JSON.stringify(buildHeartbeat({ leave: true }))], { type: 'application/json' });
+  navigator.sendBeacon(PRESENCE_ENDPOINT, payload);
+}
+
+// Server data lags behind local taps, so always show this device's live profile and score.
+function getPartyPlayers() {
+  const others = party.players.filter((player) => player.id !== state.playerId);
+  if (!state.isJoined) {
+    return others;
+  }
+  return [
+    ...others,
+    {
+      id: state.playerId,
+      name: state.playerName || 'Guest',
+      emoji: state.selectedEmoji || '🐸',
+      score: getCompletedCount(),
+      online: true,
+      isSelf: true
+    }
+  ];
+}
+
+function formatTimeAgo(timestamp) {
+  const seconds = Math.max(0, Math.round((Date.now() + party.clockOffset - timestamp) / 1000));
+  if (seconds < 45) {
+    return 'just now';
+  }
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+  return `${Math.round(minutes / 60)}h ago`;
 }
 
 function updatePlayerBadge() {
@@ -178,8 +278,8 @@ function updatePlayerBadge() {
 }
 
 function updateLivePlayerCount() {
-  const players = getPartyPlayers();
-  livePlayerCount.textContent = String(Math.max(players.length, 1));
+  const onlineCount = getPartyPlayers().filter((player) => player.online).length;
+  livePlayerCount.textContent = String(onlineCount);
 }
 
 function renderEmojiPicker() {
@@ -214,6 +314,7 @@ function showJoinScreen() {
 }
 
 function showGameScreen() {
+  state.isJoined = true;
   joinScreen.classList.add('hidden');
   gameScreen.classList.remove('hidden');
   updatePlayerBadge();
@@ -226,19 +327,6 @@ function savePlayerProfile() {
     emoji: state.selectedEmoji
   };
   localStorage.setItem(PLAYER_PROFILE_KEY, JSON.stringify(profile));
-
-  const players = getPartyPlayers();
-  const existingIndex = players.findIndex((player) => player.id === state.playerId);
-  const playerRecord = { id: state.playerId, name: state.playerName, emoji: state.selectedEmoji };
-
-  if (existingIndex >= 0) {
-    players[existingIndex] = playerRecord;
-  } else {
-    players.push(playerRecord);
-  }
-
-  savePartyPlayers(players);
-  updateLivePlayerCount();
 }
 
 function loadPlayerProfile() {
@@ -416,54 +504,107 @@ function updateProgress() {
   progressLabel.textContent = `${completeCount} / 24 completed`;
 }
 
+function createAvatar(emoji) {
+  const avatar = document.createElement('span');
+  avatar.className = 'leaderboard-emoji';
+  avatar.textContent = emoji || '🐸';
+  return avatar;
+}
+
+function renderWhosHere() {
+  const onlinePlayers = getPartyPlayers()
+    .filter((player) => player.online)
+    .sort((a, b) => Number(Boolean(b.isSelf)) - Number(Boolean(a.isSelf)) || a.name.localeCompare(b.name));
+
+  whosHereCount.textContent = String(onlinePlayers.length);
+  whosHereList.innerHTML = '';
+
+  onlinePlayers.forEach((player) => {
+    const item = document.createElement('li');
+    item.className = 'whos-here-item';
+
+    const name = document.createElement('span');
+    name.className = 'whos-here-name';
+    name.textContent = player.isSelf ? `${player.name} (you)` : player.name;
+
+    item.append(createAvatar(player.emoji), name);
+    whosHereList.appendChild(item);
+  });
+}
+
 function renderLeaderboard() {
-  const players = getPartyPlayers();
-
-  const mergedPlayers = players.length
-    ? players.map((player) => ({
-        id: player.id,
-        name: player.name || 'Guest',
-        emoji: player.emoji || '🐸',
-        score: getCompletedCount()
-      }))
-    : [{
-        id: state.playerId,
-        name: state.playerName || 'Guest',
-        emoji: state.selectedEmoji || '🐸',
-        score: getCompletedCount()
-      }];
-
-  const leaderboard = mergedPlayers.sort((a, b) => b.score - a.score);
+  const leaderboard = getPartyPlayers().sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
   leaderboardList.innerHTML = '';
 
   leaderboard.forEach((player, index) => {
     const item = document.createElement('li');
     item.className = 'leaderboard-item';
-    item.innerHTML = `
-      <span class="leaderboard-rank">${index + 1}</span>
-      <span class="leaderboard-emoji">${player.emoji}</span>
-      <span>${player.name}</span>
-      <span class="leaderboard-score">${player.score}</span>
-    `;
+    item.classList.toggle('is-offline', !player.online);
+
+    const rank = document.createElement('span');
+    rank.className = 'leaderboard-rank';
+    rank.textContent = String(index + 1);
+
+    const name = document.createElement('span');
+    name.textContent = player.online ? player.name : `${player.name} (away)`;
+
+    const score = document.createElement('span');
+    score.className = 'leaderboard-score';
+    score.textContent = String(player.score);
+
+    item.append(rank, createAvatar(player.emoji), name, score);
     leaderboardList.appendChild(item);
   });
 }
 
-function renderActivityFeed() {
-  const entries = [
-    `${state.selectedEmoji} ${state.playerName || 'Guest'} joined the party`,
-    `${state.selectedEmoji} ${state.playerName || 'Guest'} completed ${getCompletedCount()} squares`,
-    `${state.selectedEmoji} ${state.playerName || 'Guest'} is on the move`
-  ];
+function addFeedNotice(text) {
+  const item = document.createElement('li');
+  item.className = 'activity-item activity-notice';
+  item.textContent = text;
+  activityFeed.appendChild(item);
+}
 
+function renderActivityFeed() {
   activityFeed.innerHTML = '';
-  entries.forEach((entry) => {
+
+  if (!party.hasSynced) {
+    addFeedNotice('Connecting to the party…');
+    return;
+  }
+
+  if (!party.connected) {
+    addFeedNotice('Can’t reach the party right now. Only your own progress is shown.');
+  }
+
+  if (!party.feed.length) {
+    if (party.connected) {
+      addFeedNotice('Nothing yet. Go find someone!');
+    }
+    return;
+  }
+
+  party.feed.forEach((entry) => {
     const item = document.createElement('li');
     item.className = 'activity-item';
-    item.textContent = entry;
+
+    const text = document.createElement('span');
+    text.textContent = `${entry.emoji} ${entry.name} ${entry.text}`;
+
+    const time = document.createElement('span');
+    time.className = 'activity-time';
+    time.textContent = formatTimeAgo(entry.at);
+
+    item.append(text, time);
     activityFeed.appendChild(item);
   });
+}
+
+function renderPartyPanels() {
+  updateLivePlayerCount();
+  renderWhosHere();
+  renderLeaderboard();
+  renderActivityFeed();
 }
 
 function promptForSquareName(index, prompt) {
@@ -551,9 +692,9 @@ function renderBoard() {
 
   updateWinningHighlights();
   updateProgress();
-  renderLeaderboard();
-  renderActivityFeed();
+  renderPartyPanels();
   showBingoToast();
+  queueSync();
 }
 
 function resetCard() {
@@ -614,9 +755,18 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+window.addEventListener('pagehide', sendLeaveBeacon);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    startSyncLoop();
+  } else {
+    stopSyncLoop();
+  }
+});
+
 renderEmojiPicker();
 loadSavedState();
-updateLivePlayerCount();
+startSyncLoop();
 
 if (state.playerName.trim()) {
   guestNameInput.value = state.playerName;

@@ -492,11 +492,78 @@ h1 {
 }
 
 .activity-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
   padding: 0.45rem 0.3rem;
   border-left: 3px solid var(--ink);
   background: rgba(17, 17, 17, 0.03);
   font-size: 0.8rem;
   line-height: 1.45;
+}
+
+.activity-time {
+  flex-shrink: 0;
+  opacity: 0.6;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.activity-notice {
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.panel-count {
+  display: inline-block;
+  min-width: 1.5rem;
+  margin-left: 0.3rem;
+  padding: 0 0.35rem;
+  border: 2px solid var(--ink);
+  background: var(--green);
+  text-align: center;
+}
+
+.whos-here-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.whos-here-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.6rem 0.15rem 0.15rem;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.whos-here-name {
+  position: relative;
+  padding-left: 0.75rem;
+}
+
+.whos-here-name::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--green);
+  transform: translateY(-50%);
+}
+
+.leaderboard-item.is-offline {
+  opacity: 0.5;
 }
 
 .primary-button,

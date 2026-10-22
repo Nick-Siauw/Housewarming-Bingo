@@ -45,7 +45,7 @@
           </div>
 
           <button id="joinButton" class="primary-button join-button" type="button">LET'S PLAY</button>
-          <p class="player-count"><span id="livePlayerCount">1</span> people playing</p>
+          <p class="player-count"><span id="livePlayerCount">0</span> people playing right now</p>
         </div>
       </section>
 
@@ -80,7 +80,11 @@
             </button>
           </div>
 
-          <section class="info-panels" aria-label="Leaderboard and activity feed">
+          <section class="info-panels" aria-label="Players, leaderboard and activity feed">
+            <div class="panel">
+              <h2>Who’s Here <span id="whosHereCount" class="panel-count">1</span></h2>
+              <ul id="whosHereList" class="whos-here-list" aria-live="polite"></ul>
+            </div>
             <div class="panel">
               <h2>Leaderboard</h2>
               <ol id="leaderboardList" class="leaderboard-list"></ol>
