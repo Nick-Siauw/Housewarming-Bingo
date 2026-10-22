@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Housewarming Bingo for Kathryn, Cynthia, and Natasha"
+    />
+    <title>Housewarming Bingo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <section id="joinScreen" class="screen join-screen" aria-label="Join screen">
+        <header class="masthead" aria-label="Housewarming Bingo header">
+          <h1>Housewarming Bingo</h1>
+          <p class="subtitle">Kathryn × Cynthia × Natasha</p>
+          <p class="join-copy">How well do you really know everyone here?</p>
+        </header>
+
+        <div class="join-card">
+          <div class="profile-row">
+            <div class="profile-avatar-wrap">
+              <span id="selectedEmojiPreview" class="selected-emoji" aria-live="polite">🐸</span>
+            </div>
+            <div class="profile-input-wrap">
+              <label class="field-label" for="guestNameInput">Your name or nickname</label>
+              <input
+                id="guestNameInput"
+                class="name-input"
+                type="text"
+                maxlength="40"
+                autocomplete="name"
+                placeholder="Type your name"
+              />
+            </div>
+          </div>
+
+          <div class="emoji-picker-wrap">
+            <div class="emoji-picker-row">
+              <span class="field-label">Pick your emoji</span>
+            </div>
+            <div id="emojiGrid" class="emoji-grid" aria-label="Emoji selector"></div>
+          </div>
+
+          <button id="joinButton" class="primary-button join-button" type="button">LET'S PLAY</button>
+          <p class="player-count"><span id="livePlayerCount">1</span> people playing</p>
+        </div>
+      </section>
+
+      <section id="gameScreen" class="screen game-screen hidden" aria-label="Bingo screen">
+        <header class="masthead" aria-label="Housewarming Bingo header">
+          <h1>Housewarming Bingo</h1>
+          <div class="player-summary">
+            <span id="currentPlayerChip" class="player-chip">
+              <span id="currentPlayerAvatar" class="avatar-bubble">🐸</span>
+              <span id="currentPlayerName">Guest</span>
+            </span>
+          </div>
+          <p class="subtitle">Kathryn × Cynthia × Natasha</p>
+          <p id="playerNameBadge" class="player-badge" hidden>Player: <span id="playerNameText">Guest</span></p>
+          <p class="instruction">Find someone who fits the square. Five in a row wins.</p>
+        </header>
+
+        <main class="game" aria-live="polite">
+          <div class="status-row">
+            <span id="progressLabel" class="progress-pill" aria-live="polite">0 / 24 completed</span>
+            <button id="rulesButton" class="text-button" type="button" aria-controls="rulesModal">
+              How to play
+            </button>
+          </div>
+
+          <div id="board" class="board" role="grid" aria-label="Housewarming bingo board"></div>
+
+          <div class="controls" aria-label="Game controls">
+            <button id="newCardButton" class="primary-button" type="button">New Card</button>
+            <button id="clearProgressButton" class="secondary-button" type="button">
+              Clear Progress
+            </button>
+          </div>
+
+          <section class="info-panels" aria-label="Leaderboard and activity feed">
+            <div class="panel">
+              <h2>Leaderboard</h2>
+              <ol id="leaderboardList" class="leaderboard-list"></ol>
+            </div>
+            <div class="panel">
+              <h2>Party Feed</h2>
+              <ul id="activityFeed" class="activity-feed"></ul>
+            </div>
+          </section>
+        </main>
+
+        <footer class="site-footer">
+          <span>Kathryn</span>
+          <span>·</span>
+          <span>Cynthia</span>
+          <span>·</span>
+          <span>Natasha</span>
+        </footer>
+      </section>
+    </div>
+
+    <div id="bingoToast" class="bingo-toast" aria-live="assertive" aria-hidden="true" hidden>
+      <div class="toast-card">
+        <p class="toast-tag">BINGO!</p>
+        <p class="toast-copy">You’ve got a line.</p>
+        <button id="dismissBingoButton" class="toast-button" type="button">Keep playing</button>
+      </div>
+    </div>
+
+    <div id="rulesModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="rulesTitle" hidden>
+      <div class="modal-card">
+        <button id="closeRulesButton" class="close-button" type="button" aria-label="Close rules">
+          ×
+        </button>
+        <h2 id="rulesTitle">How to play</h2>
+        <ol>
+          <li>Tap any square to mark it complete.</li>
+          <li>Find someone at the party who fits the square.</li>
+          <li>Complete five in a row, column, or diagonal to win.</li>
+          <li>Press “New Card” for a fresh random board at any time.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div id="confettiLayer" class="confetti-layer" aria-hidden="true"></div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
