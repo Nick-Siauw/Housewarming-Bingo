@@ -64,6 +64,18 @@ const BINGO_PROMPTS = [
 
 const QUESTION_BANK = BINGO_PROMPTS.map((prompt) => prompt.text);
 
+const HOSTS = ['Cynthia', 'Natasha', 'Kathryn'];
+
+// Returns a random host name each time it's called.
+const Host = () => HOSTS[Math.floor(Math.random() * HOSTS.length)];
+
+// Fills "[Host 1]", "[Host 2]", ... in a prompt with random hosts. Different numbers always
+// get different hosts, and a repeated number reuses the same host within that prompt.
+function fillHostPlaceholders(text) {
+  const shuffledHosts = shuffle(HOSTS);
+  return text.replace(/\[Host (\d+)\]/g, (_, number) => shuffledHosts[(Number(number) - 1) % HOSTS.length] || Host());
+}
+
 const state = {
   playerId: '',
   playerName: '',
@@ -132,7 +144,7 @@ function createFreshCard() {
 
   promptTiles.forEach((prompt, index) => {
     const slot = positions[index];
-    card[slot] = prompt.text;
+    card[slot] = fillHostPlaceholders(prompt.text);
     promptIds[slot] = prompt.id;
   });
 
