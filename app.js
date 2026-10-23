@@ -1,5 +1,6 @@
 const STORAGE_KEY = 'housewarming-bingo-state-v1';
 const PLAYER_PROFILE_KEY = 'housewarming-bingo-player-profile-v1';
+const PANEL_STATE_KEY = 'housewarming-bingo-panels-v1';
 const PRESENCE_ENDPOINT = '/api/presence';
 const SYNC_INTERVAL_MS = 8000;
 const EMOJI_OPTIONS = ['🐸','🐱','🐙','🦋','🦈','🍒','🍓','🥑','🍸','🪩','👽','🤠','🤡','🐧','🦖','🌷','🐝','🧃','🦀','🎀','🐶','🦄','🌈','🍉','🪐','🌙','🎉','🍔','🧁','🔥'];
@@ -118,11 +119,11 @@ const livePlayerCount = document.getElementById('livePlayerCount');
 const currentPlayerChip = document.getElementById('currentPlayerChip');
 const currentPlayerAvatar = document.getElementById('currentPlayerAvatar');
 const currentPlayerName = document.getElementById('currentPlayerName');
-const playerNameText = document.getElementById('playerNameText');
-const playerNameBadge = document.getElementById('playerNameBadge');
 const leaderboardList = document.getElementById('leaderboardList');
 const whosHereList = document.getElementById('whosHereList');
 const whosHereCount = document.getElementById('whosHereCount');
+const leaderboardRank = document.getElementById('leaderboardRank');
+const collapsiblePanels = document.querySelectorAll('.collapsible-panel');
 const activityFeed = document.getElementById('activityFeed');
 const partyAnnouncement = document.getElementById('partyAnnouncement');
 const partyAnnouncementText = document.getElementById('partyAnnouncementText');
@@ -344,18 +345,8 @@ function formatTimeAgo(timestamp) {
 }
 
 function updatePlayerBadge() {
-  const trimmedName = state.playerName.trim();
-  const displayName = trimmedName || 'Guest';
-
-  if (!trimmedName) {
-    playerNameBadge.hidden = true;
-  } else {
-    playerNameText.textContent = trimmedName;
-    playerNameBadge.hidden = false;
-  }
-
   currentPlayerAvatar.textContent = state.selectedEmoji;
-  currentPlayerName.textContent = displayName;
+  currentPlayerName.textContent = state.playerName.trim() || 'Guest';
 }
 
 function updateLivePlayerCount() {
@@ -658,6 +649,9 @@ function renderWhosHere() {
 function renderLeaderboard() {
   const leaderboard = getPartyPlayers().sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
+  const selfIndex = leaderboard.findIndex((player) => player.isSelf);
+  leaderboardRank.textContent = selfIndex >= 0 ? `· You’re #${selfIndex + 1} of ${leaderboard.length}` : '';
+
   leaderboardList.innerHTML = '';
 
   leaderboard.forEach((player, index) => {
@@ -958,6 +952,32 @@ squareModal.addEventListener('click', (event) => {
   }
 });
 
+// Remember which panels each guest collapsed. Storage can be unavailable (private mode), so
+// panels just default to open in that case.
+function restorePanelState() {
+  let savedPanels = {};
+  try {
+    savedPanels = JSON.parse(localStorage.getItem(PANEL_STATE_KEY)) || {};
+  } catch (error) {
+    savedPanels = {};
+  }
+
+  collapsiblePanels.forEach((panel) => {
+    if (typeof savedPanels[panel.id] === 'boolean') {
+      panel.open = savedPanels[panel.id];
+    }
+    panel.addEventListener('toggle', () => {
+      savedPanels[panel.id] = panel.open;
+      try {
+        localStorage.setItem(PANEL_STATE_KEY, JSON.stringify(savedPanels));
+      } catch (error) {
+        console.warn('Could not save panel state:', error);
+      }
+    });
+  });
+}
+
+restorePanelState();
 partyAnnouncement.addEventListener('click', hidePartyAnnouncement);
 window.addEventListener('pagehide', sendLeaveBeacon);
 document.addEventListener('visibilitychange', () => {

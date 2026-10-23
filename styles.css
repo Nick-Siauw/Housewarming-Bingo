@@ -454,6 +454,45 @@ h1 {
   text-transform: uppercase;
 }
 
+.collapsible-panel summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  list-style: none;
+  cursor: pointer;
+}
+
+.collapsible-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible-panel summary::after {
+  content: "▾";
+  font-size: 1.1rem;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+
+.collapsible-panel:not([open]) summary::after {
+  transform: rotate(-90deg);
+}
+
+.collapsible-panel:not([open]) summary h2 {
+  margin-bottom: 0;
+}
+
+.collapsible-panel summary h2 {
+  flex: 1;
+}
+
+.panel-subtitle {
+  margin-left: 0.3rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+}
+
 .leaderboard-list,
 .activity-feed {
   list-style: none;

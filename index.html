@@ -61,7 +61,6 @@
             </button>
           </div>
           <p class="subtitle">Kathryn × Cynthia × Natasha</p>
-          <p id="playerNameBadge" class="player-badge" hidden>Player: <span id="playerNameText">Guest</span></p>
           <p class="instruction">Find someone who fits the square. Five in a row wins.</p>
         </header>
 
@@ -84,17 +83,21 @@
 
           <section class="info-panels" aria-label="Players, leaderboard and activity feed">
             <div class="panel">
-              <h2>Who’s Here <span id="whosHereCount" class="panel-count">1</span></h2>
-              <ul id="whosHereList" class="whos-here-list" aria-live="polite"></ul>
-            </div>
-            <div class="panel">
-              <h2>Leaderboard</h2>
-              <ol id="leaderboardList" class="leaderboard-list"></ol>
-            </div>
-            <div class="panel">
               <h2>Party Feed</h2>
               <ul id="activityFeed" class="activity-feed"></ul>
-            </div>
+            </div> 
+            <details id="whosHerePanel" class="panel collapsible-panel" open>
+              <summary>
+                <h2>Who’s Here <span id="whosHereCount" class="panel-count">1</span></h2>
+              </summary>
+              <ul id="whosHereList" class="whos-here-list" aria-live="polite"></ul>
+            </details>
+            <details id="leaderboardPanel" class="panel collapsible-panel" open>
+              <summary>
+                <h2>Leaderboard <span id="leaderboardRank" class="panel-subtitle"></span></h2>
+              </summary>
+              <ol id="leaderboardList" class="leaderboard-list"></ol>
+            </details>
           </section>
         </main>
 
