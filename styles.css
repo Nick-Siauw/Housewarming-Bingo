@@ -801,6 +801,68 @@ h1 {
   color: var(--ink);
 }
 
+.square-modal-label {
+  margin: 0 0 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.modal-card h2.square-modal-prompt {
+  margin: 0;
+  padding-right: 1.6rem;
+  font-size: clamp(1.1rem, 5vw, 1.4rem);
+  line-height: 1.25;
+  text-transform: none;
+}
+
+.square-player-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  max-height: 38vh;
+  overflow-y: auto;
+}
+
+.square-player-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.7rem 0.2rem 0.2rem;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.square-player-option.is-selected {
+  background: var(--red);
+  color: #fff;
+}
+
+.square-player-empty {
+  margin: 0;
+  font-size: 0.82rem;
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.square-modal-actions {
+  display: flex;
+  gap: 0.7rem;
+}
+
+.square-modal-actions [hidden] {
+  display: none;
+}
+
 .name-input {
   width: 100%;
   padding: 0.8rem 0.9rem;

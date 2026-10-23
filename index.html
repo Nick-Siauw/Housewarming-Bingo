@@ -121,6 +121,33 @@
       <span id="partyAnnouncementText"></span>
     </button>
 
+    <div id="squareModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="squareModalPrompt" hidden>
+      <div class="modal-card name-modal-card">
+        <button id="closeSquareButton" class="close-button" type="button" aria-label="Close">
+          ×
+        </button>
+        <div>
+          <p class="square-modal-label">Who fits this square?</p>
+          <h2 id="squareModalPrompt" class="square-modal-prompt"></h2>
+        </div>
+        <ul id="squarePlayerList" class="square-player-list" aria-label="Players online"></ul>
+        <p id="squarePlayerEmpty" class="square-player-empty" hidden></p>
+        <label class="field-label" for="squareNameInput">Not playing? Type their name</label>
+        <input
+          id="squareNameInput"
+          class="name-input"
+          type="text"
+          maxlength="40"
+          autocomplete="off"
+          placeholder="Search players or type a name"
+        />
+        <div class="square-modal-actions">
+          <button id="saveSquareButton" class="primary-button" type="button">Save</button>
+          <button id="removeSquareButton" class="secondary-button" type="button" hidden>Unmark</button>
+        </div>
+      </div>
+    </div>
+
     <div id="rulesModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="rulesTitle" hidden>
       <div class="modal-card">
         <button id="closeRulesButton" class="close-button" type="button" aria-label="Close rules">
@@ -128,8 +155,8 @@
         </button>
         <h2 id="rulesTitle">How to play</h2>
         <ol>
-          <li>Tap any square to mark it complete.</li>
-          <li>Find someone at the party who fits the square.</li>
+          <li>Find someone at the party who fits a square.</li>
+          <li>Tap the square and pick them from the players online, or type their name.</li>
           <li>Complete five in a row, column, or diagonal to win.</li>
           <li>Press “New Card” for a fresh random board at any time.</li>
         </ol>

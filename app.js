@@ -83,6 +83,7 @@ const state = {
   card: Array(25).fill(''),
   completed: Array(25).fill(false),
   squareNames: Array(25).fill(''),
+  squarePlayerIds: Array(25).fill(''),
   promptIds: Array(25).fill(''),
   lastCelebratedKey: '',
   isJoined: false
@@ -103,6 +104,14 @@ const gameScreen = document.getElementById('gameScreen');
 const guestNameInput = document.getElementById('guestNameInput');
 const joinButton = document.getElementById('joinButton');
 const cancelEditButton = document.getElementById('cancelEditButton');
+const squareModal = document.getElementById('squareModal');
+const squareModalPrompt = document.getElementById('squareModalPrompt');
+const squarePlayerList = document.getElementById('squarePlayerList');
+const squarePlayerEmpty = document.getElementById('squarePlayerEmpty');
+const squareNameInput = document.getElementById('squareNameInput');
+const saveSquareButton = document.getElementById('saveSquareButton');
+const removeSquareButton = document.getElementById('removeSquareButton');
+const closeSquareButton = document.getElementById('closeSquareButton');
 const emojiGrid = document.getElementById('emojiGrid');
 const selectedEmojiPreview = document.getElementById('selectedEmojiPreview');
 const livePlayerCount = document.getElementById('livePlayerCount');
@@ -152,6 +161,7 @@ function createFreshCard() {
   state.promptIds = promptIds;
   state.completed = Array(25).fill(false);
   state.squareNames = Array(25).fill('');
+  state.squarePlayerIds = Array(25).fill('');
   state.completed[FREE_INDEX] = true;
   state.lastCelebratedKey = '';
   hideBingoToast();
@@ -181,6 +191,7 @@ let syncInFlight = false;
 let resyncAfterFlight = false;
 let announcementTimer = null;
 let profileBeforeEdit = null;
+let activeSquareIndex = null;
 
 function buildHeartbeat(extra = {}) {
   return {
@@ -491,6 +502,7 @@ function loadSavedState() {
     const safeCompleted = Array.isArray(parsed.completed) && parsed.completed.length === 25 ? parsed.completed : null;
     const safeSquareNames = Array.isArray(parsed.squareNames) && parsed.squareNames.length === 25 ? parsed.squareNames : Array(25).fill('');
     const safePromptIds = Array.isArray(parsed.promptIds) && parsed.promptIds.length === 25 ? parsed.promptIds : Array(25).fill('');
+    const safeSquarePlayerIds = Array.isArray(parsed.squarePlayerIds) && parsed.squarePlayerIds.length === 25 ? parsed.squarePlayerIds : Array(25).fill('');
 
     if (!safeCard || !safeCompleted) {
       createFreshCard();
@@ -506,6 +518,7 @@ function loadSavedState() {
     state.promptIds = safePromptIds.map((value) => typeof value === 'string' ? value : '');
     state.completed = safeCompleted.map((value) => Boolean(value));
     state.squareNames = safeSquareNames.map((value) => typeof value === 'string' ? value : '');
+    state.squarePlayerIds = safeSquarePlayerIds.map((value) => typeof value === 'string' ? value : '');
     state.completed[FREE_INDEX] = true;
     state.lastCelebratedKey = '';
     hideBingoToast();
@@ -530,7 +543,8 @@ function saveState() {
     card: state.card,
     promptIds: state.promptIds,
     completed: state.completed,
-    squareNames: state.squareNames
+    squareNames: state.squareNames,
+    squarePlayerIds: state.squarePlayerIds
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 }
@@ -716,27 +730,86 @@ function renderPartyPanels() {
   renderWhosHere();
   renderLeaderboard();
   renderActivityFeed();
+  renderSquarePlayerList();
 }
 
-function promptForSquareName(index, prompt) {
-  const currentName = state.squareNames[index] || '';
-  const answer = window.prompt(`Who fits this square?\n\n${prompt}\n\nType a name or leave blank to undo.`, currentName);
+function setSquare(index, name, playerId = '') {
+  state.squareNames[index] = name;
+  state.squarePlayerIds[index] = name ? playerId : '';
+  state.completed[index] = Boolean(name);
+  saveState();
+  closeSquareModal();
+  renderBoard();
+}
 
-  if (answer === null) {
+function getPickablePlayers() {
+  return getPartyPlayers()
+    .filter((player) => player.online && !player.isSelf)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function renderSquarePlayerList() {
+  if (activeSquareIndex === null) {
     return;
   }
 
-  const trimmed = answer.trim();
-  state.squareNames[index] = trimmed;
+  const query = squareNameInput.value.trim().toLowerCase();
+  const onlinePlayers = getPickablePlayers();
+  const matches = onlinePlayers.filter((player) => player.name.toLowerCase().includes(query));
+  const selectedId = state.squarePlayerIds[activeSquareIndex];
 
-  if (!trimmed) {
-    state.completed[index] = false;
+  squarePlayerList.innerHTML = '';
+
+  matches.forEach((player) => {
+    const item = document.createElement('li');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'square-player-option';
+    button.classList.toggle('is-selected', player.id === selectedId);
+
+    const name = document.createElement('span');
+    name.textContent = player.name;
+
+    button.append(createAvatar(player.emoji), name);
+    button.addEventListener('click', () => setSquare(activeSquareIndex, player.name, player.id));
+    item.appendChild(button);
+    squarePlayerList.appendChild(item);
+  });
+
+  if (!onlinePlayers.length) {
+    squarePlayerEmpty.textContent = 'No one else is online yet. Type their name below.';
+  } else if (!matches.length) {
+    squarePlayerEmpty.textContent = `No player named “${squareNameInput.value.trim()}” online. Tap Save to use that name.`;
   } else {
-    state.completed[index] = true;
+    squarePlayerEmpty.textContent = '';
+  }
+  squarePlayerEmpty.hidden = !squarePlayerEmpty.textContent;
+}
+
+function openSquareModal(index) {
+  activeSquareIndex = index;
+  squareModalPrompt.textContent = state.card[index];
+  // Names picked from the list stay in the list; only show typed names in the input.
+  squareNameInput.value = state.squarePlayerIds[index] ? '' : state.squareNames[index];
+  removeSquareButton.hidden = !state.completed[index];
+  renderSquarePlayerList();
+  squareModal.hidden = false;
+}
+
+function closeSquareModal() {
+  activeSquareIndex = null;
+  squareModal.hidden = true;
+}
+
+function saveTypedSquareName() {
+  const typedName = squareNameInput.value.trim();
+  if (!typedName) {
+    squareNameInput.focus();
+    return;
   }
 
-  saveState();
-  renderBoard();
+  const matchingPlayer = getPickablePlayers().find((player) => player.name.toLowerCase() === typedName.toLowerCase());
+  setSquare(activeSquareIndex, matchingPlayer ? matchingPlayer.name : typedName, matchingPlayer ? matchingPlayer.id : '');
 }
 
 function toggleCell(index) {
@@ -744,23 +817,7 @@ function toggleCell(index) {
     return;
   }
 
-  const promptText = state.card[index];
-  const currentName = state.squareNames[index].trim();
-
-  if (state.completed[index] && currentName) {
-    const shouldEdit = window.confirm('Edit this square name or undo it?');
-    if (shouldEdit) {
-      promptForSquareName(index, promptText);
-    } else {
-      state.completed[index] = false;
-      state.squareNames[index] = '';
-      saveState();
-      renderBoard();
-    }
-    return;
-  }
-
-  promptForSquareName(index, promptText);
+  openSquareModal(index);
 }
 
 function renderBoard() {
@@ -834,6 +891,7 @@ function clearProgress() {
 
   state.completed = Array(25).fill(false);
   state.squareNames = Array(25).fill('');
+  state.squarePlayerIds = Array(25).fill('');
   state.completed[FREE_INDEX] = true;
   state.lastCelebratedKey = '';
   hideBingoToast();
@@ -878,6 +936,25 @@ document.addEventListener('keydown', (event) => {
 
   if (event.key === 'Escape' && !bingoToast.hidden) {
     hideBingoToast();
+  }
+
+  if (event.key === 'Escape' && !squareModal.hidden) {
+    closeSquareModal();
+  }
+});
+
+closeSquareButton.addEventListener('click', closeSquareModal);
+saveSquareButton.addEventListener('click', saveTypedSquareName);
+removeSquareButton.addEventListener('click', () => setSquare(activeSquareIndex, ''));
+squareNameInput.addEventListener('input', renderSquarePlayerList);
+squareNameInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    saveTypedSquareName();
+  }
+});
+squareModal.addEventListener('click', (event) => {
+  if (event.target === squareModal) {
+    closeSquareModal();
   }
 });
 
