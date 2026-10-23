@@ -1,6 +1,8 @@
 const STORAGE_KEY = 'housewarming-bingo-state-v1';
 const PLAYER_PROFILE_KEY = 'housewarming-bingo-player-profile-v1';
-const PARTY_PLAYERS_KEY = 'housewarming-bingo-party-players-v1';
+const PANEL_STATE_KEY = 'housewarming-bingo-panels-v1';
+const PRESENCE_ENDPOINT = '/api/presence';
+const SYNC_INTERVAL_MS = 8000;
 const EMOJI_OPTIONS = ['🐸','🐱','🐙','🦋','🦈','🍒','🍓','🥑','🍸','🪩','👽','🤠','🤡','🐧','🦖','🌷','🐝','🧃','🦀','🎀','🐶','🦄','🌈','🍉','🪐','🌙','🎉','🍔','🧁','🔥'];
 const FREE_INDEX = 12;
 const WINNING_LINES = [
@@ -63,13 +65,27 @@ const BINGO_PROMPTS = [
 
 const QUESTION_BANK = BINGO_PROMPTS.map((prompt) => prompt.text);
 
+const HOSTS = ['Cynthia', 'Natasha', 'Kathryn'];
+
+// Returns a random host name each time it's called.
+const Host = () => HOSTS[Math.floor(Math.random() * HOSTS.length)];
+
+// Fills "[Host 1]", "[Host 2]", ... in a prompt with random hosts. Different numbers always
+// get different hosts, and a repeated number reuses the same host within that prompt.
+function fillHostPlaceholders(text) {
+  const shuffledHosts = shuffle(HOSTS);
+  return text.replace(/\[Host (\d+)\]/g, (_, number) => shuffledHosts[(Number(number) - 1) % HOSTS.length] || Host());
+}
+
 const state = {
   playerId: '',
+  playerSecret: '',
   playerName: '',
   selectedEmoji: '🐸',
   card: Array(25).fill(''),
   completed: Array(25).fill(false),
   squareNames: Array(25).fill(''),
+  squarePlayerIds: Array(25).fill(''),
   promptIds: Array(25).fill(''),
   lastCelebratedKey: '',
   isJoined: false
@@ -89,16 +105,35 @@ const joinScreen = document.getElementById('joinScreen');
 const gameScreen = document.getElementById('gameScreen');
 const guestNameInput = document.getElementById('guestNameInput');
 const joinButton = document.getElementById('joinButton');
+const cancelEditButton = document.getElementById('cancelEditButton');
+const squareModal = document.getElementById('squareModal');
+const squareModalPrompt = document.getElementById('squareModalPrompt');
+const squarePlayerList = document.getElementById('squarePlayerList');
+const squarePlayerEmpty = document.getElementById('squarePlayerEmpty');
+const squareNameInput = document.getElementById('squareNameInput');
+const saveSquareButton = document.getElementById('saveSquareButton');
+const removeSquareButton = document.getElementById('removeSquareButton');
+const closeSquareButton = document.getElementById('closeSquareButton');
 const emojiGrid = document.getElementById('emojiGrid');
 const selectedEmojiPreview = document.getElementById('selectedEmojiPreview');
 const livePlayerCount = document.getElementById('livePlayerCount');
 const currentPlayerChip = document.getElementById('currentPlayerChip');
 const currentPlayerAvatar = document.getElementById('currentPlayerAvatar');
 const currentPlayerName = document.getElementById('currentPlayerName');
-const playerNameText = document.getElementById('playerNameText');
-const playerNameBadge = document.getElementById('playerNameBadge');
 const leaderboardList = document.getElementById('leaderboardList');
+const whosHereList = document.getElementById('whosHereList');
+const whosHereCount = document.getElementById('whosHereCount');
+const leaderboardRank = document.getElementById('leaderboardRank');
+const collapsiblePanels = document.querySelectorAll('.collapsible-panel');
 const activityFeed = document.getElementById('activityFeed');
+const partyAnnouncement = document.getElementById('partyAnnouncement');
+const partyAnnouncementText = document.getElementById('partyAnnouncementText');
+const partyAnnouncementTag = document.getElementById('partyAnnouncementTag');
+const spottedToast = document.getElementById('spottedToast');
+const spottedToastFrom = document.getElementById('spottedToastFrom');
+const spottedToastPrompt = document.getElementById('spottedToastPrompt');
+const bingoToastTag = document.getElementById('bingoToastTag');
+const bingoToastCopy = document.getElementById('bingoToastCopy');
 
 function shuffle(items) {
   const next = [...items];
@@ -123,7 +158,7 @@ function createFreshCard() {
 
   promptTiles.forEach((prompt, index) => {
     const slot = positions[index];
-    card[slot] = prompt.text;
+    card[slot] = fillHostPlaceholders(prompt.text);
     promptIds[slot] = prompt.id;
   });
 
@@ -131,6 +166,7 @@ function createFreshCard() {
   state.promptIds = promptIds;
   state.completed = Array(25).fill(false);
   state.squareNames = Array(25).fill('');
+  state.squarePlayerIds = Array(25).fill('');
   state.completed[FREE_INDEX] = true;
   state.lastCelebratedKey = '';
   hideBingoToast();
@@ -144,42 +180,241 @@ function buildPlayerId() {
   return `player-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function getPartyPlayers() {
-  try {
-    const raw = localStorage.getItem(PARTY_PLAYERS_KEY);
-    if (!raw) {
-      return [];
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    console.warn('Could not read party players:', error);
-    return [];
+const party = {
+  players: [],
+  feed: [],
+  clockOffset: 0,
+  connected: false,
+  hasSynced: false,
+  seenEventIds: new Set(),
+  feedPrimed: false
+};
+
+let syncTimer = null;
+let queuedSyncTimer = null;
+let syncInFlight = false;
+let resyncAfterFlight = false;
+let announcementTimer = null;
+let profileBeforeEdit = null;
+let activeSquareIndex = null;
+let spottedTimer = null;
+const pendingSpots = [];
+const spottedQueue = [];
+
+function buildHeartbeat(extra = {}) {
+  return {
+    id: state.playerId,
+    secret: state.playerSecret,
+    name: state.playerName,
+    emoji: state.selectedEmoji,
+    score: getCompletedCount(),
+    bingos: getWinningLines().length,
+    ...extra
+  };
+}
+
+function getEventKey(entry) {
+  return entry.id || `${entry.at}-${entry.name}-${entry.text}`;
+}
+
+// Announce other players' bingos and full boards that arrived since the last sync. The first
+// sync only records what's already in the feed so old wins aren't replayed on load.
+function announceNewBingos(feed) {
+  const isFirstLoad = !party.feedPrimed;
+  party.feedPrimed = true;
+  const newWins = feed.filter((entry) => (
+    (entry.type === 'bingo' || entry.type === 'fullBoard')
+    && entry.playerId !== state.playerId
+    && !party.seenEventIds.has(getEventKey(entry))
+  ));
+
+  feed.forEach((entry) => party.seenEventIds.add(getEventKey(entry)));
+
+  if (!isFirstLoad && newWins.length) {
+    showPartyAnnouncement(newWins.find((entry) => entry.type === 'fullBoard') || newWins[0]);
   }
 }
 
-function savePartyPlayers(players) {
-  localStorage.setItem(PARTY_PLAYERS_KEY, JSON.stringify(players));
+function showPartyAnnouncement(entry) {
+  const isFullBoard = entry.type === 'fullBoard';
+  partyAnnouncementTag.textContent = isFullBoard ? 'FULL BOARD! 🦋' : 'BINGO!';
+  partyAnnouncementText.textContent = `${entry.emoji} ${entry.name} ${entry.text}`;
+  partyAnnouncement.classList.toggle('is-full-board', isFullBoard);
+  partyAnnouncement.hidden = false;
+  if (bingoToast.hidden) {
+    triggerConfetti(isFullBoard ? 160 : 60);
+  }
+  window.clearTimeout(announcementTimer);
+  announcementTimer = window.setTimeout(hidePartyAnnouncement, isFullBoard ? 10000 : 6000);
+}
+
+function hidePartyAnnouncement() {
+  partyAnnouncement.hidden = true;
+}
+
+function applySnapshot(snapshot) {
+  party.players = Array.isArray(snapshot.players) ? snapshot.players : [];
+  party.feed = Array.isArray(snapshot.feed) ? snapshot.feed : [];
+  party.clockOffset = Number(snapshot.now) ? snapshot.now - Date.now() : 0;
+  party.connected = true;
+  announceNewBingos(party.feed);
+  if (Array.isArray(snapshot.spotted)) {
+    snapshot.spotted.forEach((spot) => spottedQueue.push(spot));
+    showNextSpotted();
+  }
+}
+
+// Private "you were spotted" notes. These only ever come back in this player's own sync
+// response, so the answer isn't spoiled for anyone else with the same square.
+function showNextSpotted() {
+  if (!spottedToast.hidden || !spottedQueue.length) {
+    return;
+  }
+
+  const spot = spottedQueue.shift();
+  spottedToastFrom.textContent = `${spot.fromEmoji} ${spot.fromName} put you on their card:`;
+  spottedToastPrompt.textContent = `“${spot.prompt}”`;
+  spottedToast.hidden = false;
+  triggerEyeWaterfall();
+  if (navigator.vibrate) {
+    navigator.vibrate(120);
+  }
+  window.clearTimeout(spottedTimer);
+  spottedTimer = window.setTimeout(hideSpotted, 7000);
+}
+
+// A slow, spaced-out stream of 👀 down both edges of the screen, leaving the board clear.
+// Eyes are released steadily over EYE_WATERFALL_SECONDS instead of all at once.
+const EYE_WATERFALL_COUNT = 24;
+const EYE_WATERFALL_SECONDS = 5;
+
+function triggerEyeWaterfall() {
+  const gap = EYE_WATERFALL_SECONDS / EYE_WATERFALL_COUNT;
+
+  for (let index = 0; index < EYE_WATERFALL_COUNT; index += 1) {
+    const drop = document.createElement('span');
+    const onLeft = index % 2 === 0;
+    drop.className = 'eye-drop';
+    drop.textContent = '👀';
+    drop.style[onLeft ? 'left' : 'right'] = `${1 + Math.random() * 9}vw`;
+    drop.style.fontSize = `${1.2 + Math.random() * 1}rem`;
+    drop.style.animationDelay = `${index * gap + Math.random() * gap * 0.5}s`;
+    drop.style.setProperty('--spin', `${(Math.random() - 0.5) * 120}deg`);
+    drop.addEventListener('animationend', () => drop.remove());
+    document.body.appendChild(drop);
+  }
+}
+
+function hideSpotted() {
+  window.clearTimeout(spottedTimer);
+  spottedToast.hidden = true;
+  window.setTimeout(showNextSpotted, 400);
+}
+
+async function syncPresence() {
+  if (syncInFlight) {
+    // A change landed mid-request; send it as soon as this one finishes.
+    resyncAfterFlight = true;
+    return;
+  }
+  syncInFlight = true;
+
+  // Spots added while this request is in flight stay queued for the next one.
+  const sentSpotCount = state.isJoined ? pendingSpots.length : 0;
+
+  try {
+    const response = state.isJoined
+      ? await fetch(PRESENCE_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildHeartbeat({ spots: pendingSpots.slice(0, sentSpotCount) }))
+        })
+      : await fetch(PRESENCE_ENDPOINT);
+
+    if (!response.ok) {
+      throw new Error(`Presence sync failed: ${response.status}`);
+    }
+    pendingSpots.splice(0, sentSpotCount);
+    applySnapshot(await response.json());
+  } catch (error) {
+    console.warn('Could not sync with the party:', error);
+    party.connected = false;
+  } finally {
+    party.hasSynced = true;
+    syncInFlight = false;
+  }
+
+  renderPartyPanels();
+
+  if (resyncAfterFlight) {
+    resyncAfterFlight = false;
+    syncPresence();
+  }
+}
+
+function queueSync() {
+  window.clearTimeout(queuedSyncTimer);
+  queuedSyncTimer = window.setTimeout(syncPresence, 300);
+}
+
+function startSyncLoop() {
+  window.clearInterval(syncTimer);
+  syncPresence();
+  syncTimer = window.setInterval(syncPresence, SYNC_INTERVAL_MS);
+}
+
+function stopSyncLoop() {
+  window.clearInterval(syncTimer);
+  syncTimer = null;
+}
+
+function sendLeaveBeacon() {
+  if (!state.isJoined || !navigator.sendBeacon) {
+    return;
+  }
+  const payload = new Blob([JSON.stringify(buildHeartbeat({ leave: true }))], { type: 'application/json' });
+  navigator.sendBeacon(PRESENCE_ENDPOINT, payload);
+}
+
+// Server data lags behind local taps, so always show this device's live profile and score.
+function getPartyPlayers() {
+  const others = party.players.filter((player) => player.id !== state.playerId);
+  if (!state.isJoined) {
+    return others;
+  }
+  return [
+    ...others,
+    {
+      id: state.playerId,
+      name: state.playerName || 'Guest',
+      emoji: state.selectedEmoji || '🐸',
+      score: getCompletedCount(),
+      online: true,
+      isSelf: true
+    }
+  ];
+}
+
+function formatTimeAgo(timestamp) {
+  const seconds = Math.max(0, Math.round((Date.now() + party.clockOffset - timestamp) / 1000));
+  if (seconds < 45) {
+    return 'just now';
+  }
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+  return `${Math.round(minutes / 60)}h ago`;
 }
 
 function updatePlayerBadge() {
-  const trimmedName = state.playerName.trim();
-  const displayName = trimmedName || 'Guest';
-
-  if (!trimmedName) {
-    playerNameBadge.hidden = true;
-  } else {
-    playerNameText.textContent = trimmedName;
-    playerNameBadge.hidden = false;
-  }
-
   currentPlayerAvatar.textContent = state.selectedEmoji;
-  currentPlayerName.textContent = displayName;
+  currentPlayerName.textContent = state.playerName.trim() || 'Guest';
 }
 
 function updateLivePlayerCount() {
-  const players = getPartyPlayers();
-  livePlayerCount.textContent = String(Math.max(players.length, 1));
+  const onlineCount = getPartyPlayers().filter((player) => player.online).length;
+  livePlayerCount.textContent = String(onlineCount);
 }
 
 function renderEmojiPicker() {
@@ -214,6 +449,7 @@ function showJoinScreen() {
 }
 
 function showGameScreen() {
+  state.isJoined = true;
   joinScreen.classList.add('hidden');
   gameScreen.classList.remove('hidden');
   updatePlayerBadge();
@@ -222,23 +458,11 @@ function showGameScreen() {
 function savePlayerProfile() {
   const profile = {
     id: state.playerId,
+    secret: state.playerSecret,
     name: state.playerName,
     emoji: state.selectedEmoji
   };
   localStorage.setItem(PLAYER_PROFILE_KEY, JSON.stringify(profile));
-
-  const players = getPartyPlayers();
-  const existingIndex = players.findIndex((player) => player.id === state.playerId);
-  const playerRecord = { id: state.playerId, name: state.playerName, emoji: state.selectedEmoji };
-
-  if (existingIndex >= 0) {
-    players[existingIndex] = playerRecord;
-  } else {
-    players.push(playerRecord);
-  }
-
-  savePartyPlayers(players);
-  updateLivePlayerCount();
 }
 
 function loadPlayerProfile() {
@@ -258,12 +482,44 @@ function loadPlayerProfile() {
   }
 }
 
+// Reuses the join screen to fix a typo'd name or emoji without touching the card.
+function openProfileEditor() {
+  profileBeforeEdit = { name: state.playerName, emoji: state.selectedEmoji };
+  guestNameInput.value = state.playerName;
+  joinButton.textContent = 'Save Changes';
+  cancelEditButton.hidden = false;
+  renderEmojiPicker();
+  showJoinScreen();
+}
+
+function closeProfileEditor() {
+  profileBeforeEdit = null;
+  joinButton.textContent = 'LET\'S PLAY';
+  cancelEditButton.hidden = true;
+  showGameScreen();
+}
+
+function cancelProfileEdit() {
+  state.playerName = profileBeforeEdit.name;
+  state.selectedEmoji = profileBeforeEdit.emoji;
+  renderEmojiPicker();
+  closeProfileEditor();
+}
+
 function joinGame() {
   const trimmedName = guestNameInput.value.trim();
 
   if (!trimmedName) {
     window.alert('Please add your name before joining the party.');
     guestNameInput.focus();
+    return;
+  }
+
+  if (profileBeforeEdit) {
+    state.playerName = trimmedName;
+    savePlayerProfile();
+    closeProfileEditor();
+    renderBoard();
     return;
   }
 
@@ -281,10 +537,15 @@ function loadSavedState() {
   const savedProfile = loadPlayerProfile();
   if (savedProfile) {
     state.playerId = savedProfile.id || buildPlayerId();
+    state.playerSecret = savedProfile.secret || buildPlayerId();
     state.playerName = savedProfile.name || '';
     state.selectedEmoji = savedProfile.emoji || '🐸';
+    if (!savedProfile.secret) {
+      savePlayerProfile();
+    }
   } else {
     state.playerId = buildPlayerId();
+    state.playerSecret = buildPlayerId();
     state.selectedEmoji = '🐸';
   }
 
@@ -301,6 +562,7 @@ function loadSavedState() {
     const safeCompleted = Array.isArray(parsed.completed) && parsed.completed.length === 25 ? parsed.completed : null;
     const safeSquareNames = Array.isArray(parsed.squareNames) && parsed.squareNames.length === 25 ? parsed.squareNames : Array(25).fill('');
     const safePromptIds = Array.isArray(parsed.promptIds) && parsed.promptIds.length === 25 ? parsed.promptIds : Array(25).fill('');
+    const safeSquarePlayerIds = Array.isArray(parsed.squarePlayerIds) && parsed.squarePlayerIds.length === 25 ? parsed.squarePlayerIds : Array(25).fill('');
 
     if (!safeCard || !safeCompleted) {
       createFreshCard();
@@ -316,6 +578,7 @@ function loadSavedState() {
     state.promptIds = safePromptIds.map((value) => typeof value === 'string' ? value : '');
     state.completed = safeCompleted.map((value) => Boolean(value));
     state.squareNames = safeSquareNames.map((value) => typeof value === 'string' ? value : '');
+    state.squarePlayerIds = safeSquarePlayerIds.map((value) => typeof value === 'string' ? value : '');
     state.completed[FREE_INDEX] = true;
     state.lastCelebratedKey = '';
     hideBingoToast();
@@ -340,7 +603,8 @@ function saveState() {
     card: state.card,
     promptIds: state.promptIds,
     completed: state.completed,
-    squareNames: state.squareNames
+    squareNames: state.squareNames,
+    squarePlayerIds: state.squarePlayerIds
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 }
@@ -357,12 +621,12 @@ function serializeLines(lines) {
   return lines.map((line) => line.join('-')).join('|');
 }
 
-function triggerConfetti() {
+function triggerConfetti(pieceCount = 60) {
   confettiLayer.innerHTML = '';
 
   const colors = ['#ff4fa0', '#d9352b', '#1f6bff', '#ffd863', '#4bb77d'];
 
-  for (let index = 0; index < 60; index += 1) {
+  for (let index = 0; index < pieceCount; index += 1) {
     const piece = document.createElement('span');
     piece.style.left = `${Math.random() * 100}%`;
     piece.style.background = colors[index % colors.length];
@@ -385,10 +649,17 @@ function showBingoToast() {
     return;
   }
 
+  const isFullBoard = getCompletedCount() === 24;
+  bingoToastTag.textContent = isFullBoard ? 'SOCIAL BUTTERFLY 🦋' : 'BINGO!';
+  bingoToastCopy.textContent = isFullBoard
+    ? 'You filled the whole board. Is there anyone here you haven’t met?'
+    : 'You’ve got a line.';
+  bingoToast.classList.toggle('is-full-board', isFullBoard);
+
   state.lastCelebratedKey = toastKey;
   bingoToast.hidden = false;
   bingoToast.setAttribute('aria-hidden', 'false');
-  triggerConfetti();
+  triggerConfetti(isFullBoard ? 160 : 60);
 }
 
 function hideBingoToast() {
@@ -416,75 +687,195 @@ function updateProgress() {
   progressLabel.textContent = `${completeCount} / 24 completed`;
 }
 
+function createAvatar(emoji) {
+  const avatar = document.createElement('span');
+  avatar.className = 'leaderboard-emoji';
+  avatar.textContent = emoji || '🐸';
+  return avatar;
+}
+
+function renderWhosHere() {
+  const onlinePlayers = getPartyPlayers()
+    .filter((player) => player.online)
+    .sort((a, b) => Number(Boolean(b.isSelf)) - Number(Boolean(a.isSelf)) || a.name.localeCompare(b.name));
+
+  whosHereCount.textContent = String(onlinePlayers.length);
+  whosHereList.innerHTML = '';
+
+  onlinePlayers.forEach((player) => {
+    const item = document.createElement('li');
+    item.className = 'whos-here-item';
+
+    const name = document.createElement('span');
+    name.className = 'whos-here-name';
+    name.textContent = player.isSelf ? `${player.name} (you)` : player.name;
+
+    item.append(createAvatar(player.emoji), name);
+    whosHereList.appendChild(item);
+  });
+}
+
 function renderLeaderboard() {
-  const players = getPartyPlayers();
+  const leaderboard = getPartyPlayers().sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
-  const mergedPlayers = players.length
-    ? players.map((player) => ({
-        id: player.id,
-        name: player.name || 'Guest',
-        emoji: player.emoji || '🐸',
-        score: getCompletedCount()
-      }))
-    : [{
-        id: state.playerId,
-        name: state.playerName || 'Guest',
-        emoji: state.selectedEmoji || '🐸',
-        score: getCompletedCount()
-      }];
-
-  const leaderboard = mergedPlayers.sort((a, b) => b.score - a.score);
+  const selfIndex = leaderboard.findIndex((player) => player.isSelf);
+  leaderboardRank.textContent = selfIndex >= 0 ? `· You’re #${selfIndex + 1} of ${leaderboard.length}` : '';
 
   leaderboardList.innerHTML = '';
 
   leaderboard.forEach((player, index) => {
     const item = document.createElement('li');
     item.className = 'leaderboard-item';
-    item.innerHTML = `
-      <span class="leaderboard-rank">${index + 1}</span>
-      <span class="leaderboard-emoji">${player.emoji}</span>
-      <span>${player.name}</span>
-      <span class="leaderboard-score">${player.score}</span>
-    `;
+    item.classList.toggle('is-offline', !player.online);
+
+    const rank = document.createElement('span');
+    rank.className = 'leaderboard-rank';
+    rank.textContent = String(index + 1);
+
+    const name = document.createElement('span');
+    name.textContent = player.online ? player.name : `${player.name} (away)`;
+
+    const score = document.createElement('span');
+    score.className = 'leaderboard-score';
+    score.textContent = String(player.score);
+
+    item.append(rank, createAvatar(player.emoji), name, score);
     leaderboardList.appendChild(item);
   });
 }
 
-function renderActivityFeed() {
-  const entries = [
-    `${state.selectedEmoji} ${state.playerName || 'Guest'} joined the party`,
-    `${state.selectedEmoji} ${state.playerName || 'Guest'} completed ${getCompletedCount()} squares`,
-    `${state.selectedEmoji} ${state.playerName || 'Guest'} is on the move`
-  ];
+function addFeedNotice(text) {
+  const item = document.createElement('li');
+  item.className = 'activity-item activity-notice';
+  item.textContent = text;
+  activityFeed.appendChild(item);
+}
 
+function renderActivityFeed() {
   activityFeed.innerHTML = '';
-  entries.forEach((entry) => {
+
+  if (!party.hasSynced) {
+    addFeedNotice('Connecting to the party…');
+    return;
+  }
+
+  if (!party.connected) {
+    addFeedNotice('Can’t reach the party right now. Only your own progress is shown.');
+  }
+
+  if (!party.feed.length) {
+    if (party.connected) {
+      addFeedNotice('Nothing yet. Go find someone!');
+    }
+    return;
+  }
+
+  party.feed.forEach((entry) => {
     const item = document.createElement('li');
     item.className = 'activity-item';
-    item.textContent = entry;
+    item.classList.toggle('is-bingo', entry.type === 'bingo');
+    item.classList.toggle('is-full-board', entry.type === 'fullBoard');
+
+    const text = document.createElement('span');
+    text.textContent = `${entry.emoji} ${entry.name} ${entry.text}`;
+
+    const time = document.createElement('span');
+    time.className = 'activity-time';
+    time.textContent = formatTimeAgo(entry.at);
+
+    item.append(text, time);
     activityFeed.appendChild(item);
   });
 }
 
-function promptForSquareName(index, prompt) {
-  const currentName = state.squareNames[index] || '';
-  const answer = window.prompt(`Who fits this square?\n\n${prompt}\n\nType a name or leave blank to undo.`, currentName);
+function renderPartyPanels() {
+  updateLivePlayerCount();
+  renderWhosHere();
+  renderLeaderboard();
+  renderActivityFeed();
+  renderSquarePlayerList();
+}
 
-  if (answer === null) {
+function setSquare(index, name, playerId = '') {
+  if (playerId && playerId !== state.squarePlayerIds[index]) {
+    pendingSpots.push({ targetId: playerId, prompt: state.card[index] });
+  }
+  state.squareNames[index] = name;
+  state.squarePlayerIds[index] = name ? playerId : '';
+  state.completed[index] = Boolean(name);
+  saveState();
+  closeSquareModal();
+  renderBoard();
+}
+
+function getPickablePlayers() {
+  return getPartyPlayers()
+    .filter((player) => player.online && !player.isSelf)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function renderSquarePlayerList() {
+  if (activeSquareIndex === null) {
     return;
   }
 
-  const trimmed = answer.trim();
-  state.squareNames[index] = trimmed;
+  const query = squareNameInput.value.trim().toLowerCase();
+  const onlinePlayers = getPickablePlayers();
+  const matches = onlinePlayers.filter((player) => player.name.toLowerCase().includes(query));
+  const selectedId = state.squarePlayerIds[activeSquareIndex];
 
-  if (!trimmed) {
-    state.completed[index] = false;
+  squarePlayerList.innerHTML = '';
+
+  matches.forEach((player) => {
+    const item = document.createElement('li');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'square-player-option';
+    button.classList.toggle('is-selected', player.id === selectedId);
+
+    const name = document.createElement('span');
+    name.textContent = player.name;
+
+    button.append(createAvatar(player.emoji), name);
+    button.addEventListener('click', () => setSquare(activeSquareIndex, player.name, player.id));
+    item.appendChild(button);
+    squarePlayerList.appendChild(item);
+  });
+
+  if (!onlinePlayers.length) {
+    squarePlayerEmpty.textContent = 'No one else is online yet. Type their name below.';
+  } else if (!matches.length) {
+    squarePlayerEmpty.textContent = `No player named “${squareNameInput.value.trim()}” online. Tap Save to use that name.`;
   } else {
-    state.completed[index] = true;
+    squarePlayerEmpty.textContent = '';
+  }
+  squarePlayerEmpty.hidden = !squarePlayerEmpty.textContent;
+}
+
+function openSquareModal(index) {
+  activeSquareIndex = index;
+  squareModalPrompt.textContent = state.card[index];
+  // Names picked from the list stay in the list; only show typed names in the input.
+  squareNameInput.value = state.squarePlayerIds[index] ? '' : state.squareNames[index];
+  removeSquareButton.hidden = !state.completed[index];
+  renderSquarePlayerList();
+  squareModal.hidden = false;
+}
+
+function closeSquareModal() {
+  activeSquareIndex = null;
+  squareModal.hidden = true;
+}
+
+function saveTypedSquareName() {
+  const typedName = squareNameInput.value.trim();
+  if (!typedName) {
+    squareNameInput.focus();
+    return;
   }
 
-  saveState();
-  renderBoard();
+  const matchingPlayer = getPickablePlayers().find((player) => player.name.toLowerCase() === typedName.toLowerCase());
+  setSquare(activeSquareIndex, matchingPlayer ? matchingPlayer.name : typedName, matchingPlayer ? matchingPlayer.id : '');
 }
 
 function toggleCell(index) {
@@ -492,23 +883,7 @@ function toggleCell(index) {
     return;
   }
 
-  const promptText = state.card[index];
-  const currentName = state.squareNames[index].trim();
-
-  if (state.completed[index] && currentName) {
-    const shouldEdit = window.confirm('Edit this square name or undo it?');
-    if (shouldEdit) {
-      promptForSquareName(index, promptText);
-    } else {
-      state.completed[index] = false;
-      state.squareNames[index] = '';
-      saveState();
-      renderBoard();
-    }
-    return;
-  }
-
-  promptForSquareName(index, promptText);
+  openSquareModal(index);
 }
 
 function renderBoard() {
@@ -551,9 +926,9 @@ function renderBoard() {
 
   updateWinningHighlights();
   updateProgress();
-  renderLeaderboard();
-  renderActivityFeed();
+  renderPartyPanels();
   showBingoToast();
+  queueSync();
 }
 
 function resetCard() {
@@ -567,8 +942,22 @@ function resetCard() {
 }
 
 function clearProgress() {
+  const completedCount = getCompletedCount();
+  if (!completedCount) {
+    return;
+  }
+
+  const shouldClear = window.confirm(
+    `Clear all ${completedCount} completed square${completedCount === 1 ? '' : 's'}? `
+    + 'The names you entered will be erased and your leaderboard score will reset to 0. This can’t be undone.'
+  );
+  if (!shouldClear) {
+    return;
+  }
+
   state.completed = Array(25).fill(false);
   state.squareNames = Array(25).fill('');
+  state.squarePlayerIds = Array(25).fill('');
   state.completed[FREE_INDEX] = true;
   state.lastCelebratedKey = '';
   hideBingoToast();
@@ -580,6 +969,8 @@ newCardButton.addEventListener('click', resetCard);
 clearProgressButton.addEventListener('click', clearProgress);
 dismissBingoButton.addEventListener('click', hideBingoToast);
 joinButton.addEventListener('click', joinGame);
+cancelEditButton.addEventListener('click', cancelProfileEdit);
+currentPlayerChip.addEventListener('click', openProfileEditor);
 guestNameInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     joinGame();
@@ -612,11 +1003,67 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !bingoToast.hidden) {
     hideBingoToast();
   }
+
+  if (event.key === 'Escape' && !squareModal.hidden) {
+    closeSquareModal();
+  }
+});
+
+closeSquareButton.addEventListener('click', closeSquareModal);
+saveSquareButton.addEventListener('click', saveTypedSquareName);
+removeSquareButton.addEventListener('click', () => setSquare(activeSquareIndex, ''));
+squareNameInput.addEventListener('input', renderSquarePlayerList);
+squareNameInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    saveTypedSquareName();
+  }
+});
+squareModal.addEventListener('click', (event) => {
+  if (event.target === squareModal) {
+    closeSquareModal();
+  }
+});
+
+// Remember which panels each guest collapsed. Storage can be unavailable (private mode), so
+// panels just default to open in that case.
+function restorePanelState() {
+  let savedPanels = {};
+  try {
+    savedPanels = JSON.parse(localStorage.getItem(PANEL_STATE_KEY)) || {};
+  } catch (error) {
+    savedPanels = {};
+  }
+
+  collapsiblePanels.forEach((panel) => {
+    if (typeof savedPanels[panel.id] === 'boolean') {
+      panel.open = savedPanels[panel.id];
+    }
+    panel.addEventListener('toggle', () => {
+      savedPanels[panel.id] = panel.open;
+      try {
+        localStorage.setItem(PANEL_STATE_KEY, JSON.stringify(savedPanels));
+      } catch (error) {
+        console.warn('Could not save panel state:', error);
+      }
+    });
+  });
+}
+
+restorePanelState();
+partyAnnouncement.addEventListener('click', hidePartyAnnouncement);
+spottedToast.addEventListener('click', hideSpotted);
+window.addEventListener('pagehide', sendLeaveBeacon);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    startSyncLoop();
+  } else {
+    stopSyncLoop();
+  }
 });
 
 renderEmojiPicker();
 loadSavedState();
-updateLivePlayerCount();
+startSyncLoop();
 
 if (state.playerName.trim()) {
   guestNameInput.value = state.playerName;

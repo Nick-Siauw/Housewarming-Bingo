@@ -45,7 +45,8 @@
           </div>
 
           <button id="joinButton" class="primary-button join-button" type="button">LET'S PLAY</button>
-          <p class="player-count"><span id="livePlayerCount">1</span> people playing</p>
+          <button id="cancelEditButton" class="secondary-button join-button" type="button" hidden>Cancel</button>
+          <p class="player-count"><span id="livePlayerCount">0</span> people playing right now</p>
         </div>
       </section>
 
@@ -53,13 +54,13 @@
         <header class="masthead" aria-label="Housewarming Bingo header">
           <h1>Housewarming Bingo</h1>
           <div class="player-summary">
-            <span id="currentPlayerChip" class="player-chip">
+            <button id="currentPlayerChip" class="player-chip" type="button" aria-label="Edit your name or emoji">
               <span id="currentPlayerAvatar" class="avatar-bubble">🐸</span>
               <span id="currentPlayerName">Guest</span>
-            </span>
+              <span class="player-chip-edit" aria-hidden="true">✏️</span>
+            </button>
           </div>
           <p class="subtitle">Kathryn × Cynthia × Natasha</p>
-          <p id="playerNameBadge" class="player-badge" hidden>Player: <span id="playerNameText">Guest</span></p>
           <p class="instruction">Find someone who fits the square. Five in a row wins.</p>
         </header>
 
@@ -80,15 +81,23 @@
             </button>
           </div>
 
-          <section class="info-panels" aria-label="Leaderboard and activity feed">
-            <div class="panel">
-              <h2>Leaderboard</h2>
-              <ol id="leaderboardList" class="leaderboard-list"></ol>
-            </div>
+          <section class="info-panels" aria-label="Players, leaderboard and activity feed">
             <div class="panel">
               <h2>Party Feed</h2>
               <ul id="activityFeed" class="activity-feed"></ul>
-            </div>
+            </div> 
+            <details id="whosHerePanel" class="panel collapsible-panel" open>
+              <summary>
+                <h2>Who’s Here <span id="whosHereCount" class="panel-count">1</span></h2>
+              </summary>
+              <ul id="whosHereList" class="whos-here-list" aria-live="polite"></ul>
+            </details>
+            <details id="leaderboardPanel" class="panel collapsible-panel" open>
+              <summary>
+                <h2>Leaderboard <span id="leaderboardRank" class="panel-subtitle"></span></h2>
+              </summary>
+              <ol id="leaderboardList" class="leaderboard-list"></ol>
+            </details>
           </section>
         </main>
 
@@ -104,9 +113,47 @@
 
     <div id="bingoToast" class="bingo-toast" aria-live="assertive" aria-hidden="true" hidden>
       <div class="toast-card">
-        <p class="toast-tag">BINGO!</p>
-        <p class="toast-copy">You’ve got a line.</p>
+        <p id="bingoToastTag" class="toast-tag">BINGO!</p>
+        <p id="bingoToastCopy" class="toast-copy">You’ve got a line.</p>
         <button id="dismissBingoButton" class="toast-button" type="button">Keep playing</button>
+      </div>
+    </div>
+
+    <button id="partyAnnouncement" class="party-announcement" type="button" aria-live="polite" hidden>
+      <span id="partyAnnouncementTag" class="party-announcement-tag">BINGO!</span>
+      <span id="partyAnnouncementText"></span>
+    </button>
+
+    <button id="spottedToast" class="spotted-toast" type="button" aria-live="polite" hidden>
+      <span class="spotted-toast-tag">👀 You were spotted!</span>
+      <span id="spottedToastFrom" class="spotted-toast-from"></span>
+      <span id="spottedToastPrompt" class="spotted-toast-prompt"></span>
+    </button>
+
+    <div id="squareModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="squareModalPrompt" hidden>
+      <div class="modal-card name-modal-card">
+        <button id="closeSquareButton" class="close-button" type="button" aria-label="Close">
+          ×
+        </button>
+        <div>
+          <p class="square-modal-label">Who fits this square?</p>
+          <h2 id="squareModalPrompt" class="square-modal-prompt"></h2>
+        </div>
+        <ul id="squarePlayerList" class="square-player-list" aria-label="Players online"></ul>
+        <p id="squarePlayerEmpty" class="square-player-empty" hidden></p>
+        <label class="field-label" for="squareNameInput">Not playing? Type their name</label>
+        <input
+          id="squareNameInput"
+          class="name-input"
+          type="text"
+          maxlength="40"
+          autocomplete="off"
+          placeholder="Search players or type a name"
+        />
+        <div class="square-modal-actions">
+          <button id="saveSquareButton" class="primary-button" type="button">Save</button>
+          <button id="removeSquareButton" class="secondary-button" type="button" hidden>Unmark</button>
+        </div>
       </div>
     </div>
 
@@ -117,8 +164,8 @@
         </button>
         <h2 id="rulesTitle">How to play</h2>
         <ol>
-          <li>Tap any square to mark it complete.</li>
-          <li>Find someone at the party who fits the square.</li>
+          <li>Find someone at the party who fits a square.</li>
+          <li>Tap the square and pick them from the players online, or type their name.</li>
           <li>Complete five in a row, column, or diagonal to win.</li>
           <li>Press “New Card” for a fresh random board at any time.</li>
         </ol>
