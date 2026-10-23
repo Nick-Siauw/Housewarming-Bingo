@@ -51,7 +51,7 @@ const BINGO_PROMPTS = [
   { id: 'prompt-30', text: 'Has lychee as their favorite soju flavor' },
   { id: 'prompt-31', text: 'Does not have a driver\'s license' },
   { id: 'prompt-32', text: 'Has taken more than 10 AP classes in high school' },
-  { id: 'prompt-33', text: 'Spreads a crazy rumor about Cynthia' },
+  { id: 'prompt-33', text: 'Spread a crazy rumor about Cynthia' },
   { id: 'prompt-34', text: 'Has never had a cavity' },
   { id: 'prompt-35', text: 'Has a twin' },
   { id: 'prompt-36', text: 'Has a tattoo they regret' },
