@@ -624,6 +624,88 @@ h1 {
   letter-spacing: 0.06em;
 }
 
+.spotted-toast {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  z-index: 28;
+  display: grid;
+  gap: 0.2rem;
+  width: min(calc(100vw - 2rem), 360px);
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(17, 17, 17, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 216, 99, 0.9);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 6px 20px rgba(17, 17, 17, 0.12);
+  color: var(--ink-soft);
+  text-align: center;
+  transform: translateX(-50%);
+  cursor: pointer;
+  animation: spotted-rise 0.35s ease-out;
+}
+
+.spotted-toast[hidden] {
+  display: none;
+}
+
+.spotted-toast-tag {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.spotted-toast-from {
+  font-size: 0.8rem;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.spotted-toast-prompt {
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-style: italic;
+}
+
+.eye-drop {
+  position: fixed;
+  top: -3rem;
+  z-index: 27;
+  pointer-events: none;
+  opacity: 0;
+  animation: eye-fall 3.0s linear forwards;
+}
+
+@keyframes eye-fall {
+  0% {
+    opacity: 0;
+    transform: translateY(0) rotate(0deg);
+  }
+  10% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(110vh) rotate(var(--spin));
+  }
+}
+
+@keyframes spotted-rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 120%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
 @keyframes announcement-drop {
   from {
     opacity: 0;

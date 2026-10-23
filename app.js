@@ -79,6 +79,7 @@ function fillHostPlaceholders(text) {
 
 const state = {
   playerId: '',
+  playerSecret: '',
   playerName: '',
   selectedEmoji: '🐸',
   card: Array(25).fill(''),
@@ -128,6 +129,9 @@ const activityFeed = document.getElementById('activityFeed');
 const partyAnnouncement = document.getElementById('partyAnnouncement');
 const partyAnnouncementText = document.getElementById('partyAnnouncementText');
 const partyAnnouncementTag = document.getElementById('partyAnnouncementTag');
+const spottedToast = document.getElementById('spottedToast');
+const spottedToastFrom = document.getElementById('spottedToastFrom');
+const spottedToastPrompt = document.getElementById('spottedToastPrompt');
 const bingoToastTag = document.getElementById('bingoToastTag');
 const bingoToastCopy = document.getElementById('bingoToastCopy');
 
@@ -193,10 +197,14 @@ let resyncAfterFlight = false;
 let announcementTimer = null;
 let profileBeforeEdit = null;
 let activeSquareIndex = null;
+let spottedTimer = null;
+const pendingSpots = [];
+const spottedQueue = [];
 
 function buildHeartbeat(extra = {}) {
   return {
     id: state.playerId,
+    secret: state.playerSecret,
     name: state.playerName,
     emoji: state.selectedEmoji,
     score: getCompletedCount(),
@@ -250,6 +258,57 @@ function applySnapshot(snapshot) {
   party.clockOffset = Number(snapshot.now) ? snapshot.now - Date.now() : 0;
   party.connected = true;
   announceNewBingos(party.feed);
+  if (Array.isArray(snapshot.spotted)) {
+    snapshot.spotted.forEach((spot) => spottedQueue.push(spot));
+    showNextSpotted();
+  }
+}
+
+// Private "you were spotted" notes. These only ever come back in this player's own sync
+// response, so the answer isn't spoiled for anyone else with the same square.
+function showNextSpotted() {
+  if (!spottedToast.hidden || !spottedQueue.length) {
+    return;
+  }
+
+  const spot = spottedQueue.shift();
+  spottedToastFrom.textContent = `${spot.fromEmoji} ${spot.fromName} put you on their card:`;
+  spottedToastPrompt.textContent = `“${spot.prompt}”`;
+  spottedToast.hidden = false;
+  triggerEyeWaterfall();
+  if (navigator.vibrate) {
+    navigator.vibrate(120);
+  }
+  window.clearTimeout(spottedTimer);
+  spottedTimer = window.setTimeout(hideSpotted, 7000);
+}
+
+// A slow, spaced-out stream of 👀 down both edges of the screen, leaving the board clear.
+// Eyes are released steadily over EYE_WATERFALL_SECONDS instead of all at once.
+const EYE_WATERFALL_COUNT = 24;
+const EYE_WATERFALL_SECONDS = 5;
+
+function triggerEyeWaterfall() {
+  const gap = EYE_WATERFALL_SECONDS / EYE_WATERFALL_COUNT;
+
+  for (let index = 0; index < EYE_WATERFALL_COUNT; index += 1) {
+    const drop = document.createElement('span');
+    const onLeft = index % 2 === 0;
+    drop.className = 'eye-drop';
+    drop.textContent = '👀';
+    drop.style[onLeft ? 'left' : 'right'] = `${1 + Math.random() * 9}vw`;
+    drop.style.fontSize = `${1.2 + Math.random() * 1}rem`;
+    drop.style.animationDelay = `${index * gap + Math.random() * gap * 0.5}s`;
+    drop.style.setProperty('--spin', `${(Math.random() - 0.5) * 120}deg`);
+    drop.addEventListener('animationend', () => drop.remove());
+    document.body.appendChild(drop);
+  }
+}
+
+function hideSpotted() {
+  window.clearTimeout(spottedTimer);
+  spottedToast.hidden = true;
+  window.setTimeout(showNextSpotted, 400);
 }
 
 async function syncPresence() {
@@ -260,18 +319,22 @@ async function syncPresence() {
   }
   syncInFlight = true;
 
+  // Spots added while this request is in flight stay queued for the next one.
+  const sentSpotCount = state.isJoined ? pendingSpots.length : 0;
+
   try {
     const response = state.isJoined
       ? await fetch(PRESENCE_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildHeartbeat())
+          body: JSON.stringify(buildHeartbeat({ spots: pendingSpots.slice(0, sentSpotCount) }))
         })
       : await fetch(PRESENCE_ENDPOINT);
 
     if (!response.ok) {
       throw new Error(`Presence sync failed: ${response.status}`);
     }
+    pendingSpots.splice(0, sentSpotCount);
     applySnapshot(await response.json());
   } catch (error) {
     console.warn('Could not sync with the party:', error);
@@ -395,6 +458,7 @@ function showGameScreen() {
 function savePlayerProfile() {
   const profile = {
     id: state.playerId,
+    secret: state.playerSecret,
     name: state.playerName,
     emoji: state.selectedEmoji
   };
@@ -473,10 +537,15 @@ function loadSavedState() {
   const savedProfile = loadPlayerProfile();
   if (savedProfile) {
     state.playerId = savedProfile.id || buildPlayerId();
+    state.playerSecret = savedProfile.secret || buildPlayerId();
     state.playerName = savedProfile.name || '';
     state.selectedEmoji = savedProfile.emoji || '🐸';
+    if (!savedProfile.secret) {
+      savePlayerProfile();
+    }
   } else {
     state.playerId = buildPlayerId();
+    state.playerSecret = buildPlayerId();
     state.selectedEmoji = '🐸';
   }
 
@@ -728,6 +797,9 @@ function renderPartyPanels() {
 }
 
 function setSquare(index, name, playerId = '') {
+  if (playerId && playerId !== state.squarePlayerIds[index]) {
+    pendingSpots.push({ targetId: playerId, prompt: state.card[index] });
+  }
   state.squareNames[index] = name;
   state.squarePlayerIds[index] = name ? playerId : '';
   state.completed[index] = Boolean(name);
@@ -979,6 +1051,7 @@ function restorePanelState() {
 
 restorePanelState();
 partyAnnouncement.addEventListener('click', hidePartyAnnouncement);
+spottedToast.addEventListener('click', hideSpotted);
 window.addEventListener('pagehide', sendLeaveBeacon);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
